@@ -90,6 +90,12 @@ impl MilestoneTrackerContract {
         if duration_secs < MIN_DURATION_SECS {
             panic!("duration too short: minimum is 3600 seconds");
         }
+        if target_value == 0 {
+            panic!("target_value must be greater than zero");
+        }
+        if reward_amount <= 0 {
+            panic!("reward_amount must be positive");
+        }
 
         let now = env.ledger().timestamp();
         let deadline = now + duration_secs;

@@ -275,3 +275,60 @@ fn test_create_milestone_rejects_sub_minimum_duration() {
         &(MIN_DURATION_SECS - 1), // one second below minimum
     );
 }
+
+#[test]
+#[should_panic(expected = "target_value must be greater than zero")]
+fn test_create_milestone_rejects_zero_target_value() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (c, _, _) = setup(&env);
+    let advertiser = Address::generate(&env);
+
+    c.create_milestone(
+        &advertiser,
+        &1u64,
+        &s(&env, "1000 views"),
+        &s(&env, "views"),
+        &0u64,
+        &50_000i128,
+        &MIN_DURATION_SECS,
+    );
+}
+
+#[test]
+#[should_panic(expected = "reward_amount must be positive")]
+fn test_create_milestone_rejects_zero_reward_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (c, _, _) = setup(&env);
+    let advertiser = Address::generate(&env);
+
+    c.create_milestone(
+        &advertiser,
+        &1u64,
+        &s(&env, "1000 views"),
+        &s(&env, "views"),
+        &1000u64,
+        &0i128,
+        &MIN_DURATION_SECS,
+    );
+}
+
+#[test]
+#[should_panic(expected = "reward_amount must be positive")]
+fn test_create_milestone_rejects_negative_reward_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (c, _, _) = setup(&env);
+    let advertiser = Address::generate(&env);
+
+    c.create_milestone(
+        &advertiser,
+        &1u64,
+        &s(&env, "1000 views"),
+        &s(&env, "views"),
+        &1000u64,
+        &-1i128,
+        &MIN_DURATION_SECS,
+    );
+}
