@@ -19,6 +19,7 @@ pub enum MilestoneStatus {
 pub struct Milestone {
     pub milestone_id: u64,
     pub campaign_id: u64,
+    pub advertiser: Address,
     pub description: String,
     pub target_metric: String,
     pub target_value: u64,
@@ -103,6 +104,7 @@ impl MilestoneTrackerContract {
         let milestone = Milestone {
             milestone_id,
             campaign_id,
+            advertiser,
             description,
             target_metric,
             target_value,
@@ -201,6 +203,11 @@ impl MilestoneTrackerContract {
             .persistent()
             .get(&DataKey::Milestone(milestone_id))
             .expect("milestone not found");
+
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        if caller != milestone.advertiser && caller != admin {
+            panic!("unauthorized: only advertiser or admin can dispute");
+        }
 
         milestone.status = MilestoneStatus::Disputed;
         let _ttl_key = DataKey::Milestone(milestone_id);

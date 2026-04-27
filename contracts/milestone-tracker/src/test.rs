@@ -121,6 +121,28 @@ fn test_dispute_milestone() {
 }
 
 #[test]
+#[should_panic(expected = "unauthorized: only advertiser or admin can dispute")]
+fn test_dispute_milestone_rejects_unauthorized_caller() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (c, _, _) = setup(&env);
+    let advertiser = Address::generate(&env);
+    let attacker = Address::generate(&env);
+
+    let id = c.create_milestone(
+        &advertiser,
+        &1u64,
+        &s(&env, "1000 views"),
+        &s(&env, "views"),
+        &1000u64,
+        &50_000i128,
+        &86_400u64,
+    );
+
+    c.dispute_milestone(&attacker, &id);
+}
+
+#[test]
 fn test_resolve_dispute() {
     let env = Env::default();
     env.mock_all_auths();
