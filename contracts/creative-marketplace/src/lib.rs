@@ -191,13 +191,18 @@ impl CreativeMarketplaceContract {
             panic!("listing not active");
         }
 
-        // Check not already licensed
-        if env
+        // Check not already licensed — respect expiry so buyers can renew expired licenses
+        if let Some(existing) = env
             .storage()
             .persistent()
-            .has(&DataKey::License(listing_id, buyer.clone()))
+            .get::<DataKey, License>(&DataKey::License(listing_id, buyer.clone()))
         {
-            panic!("already licensed");
+            let still_valid = existing
+                .expires_at
+                .map_or(true, |exp| exp > env.ledger().timestamp());
+            if still_valid {
+                panic!("already licensed");
+            }
         }
 
         // Calculate fee
@@ -280,6 +285,11 @@ impl CreativeMarketplaceContract {
 
         if listing.creator != creator {
             panic!("unauthorized");
+        }
+
+        // Prevent removing a sold exclusive listing — buyer holds the exclusive rights
+        if listing.status == ListingStatus::Sold {
+            panic!("cannot remove a sold listing");
         }
 
         // If this was an exclusive license, clear the content owner
