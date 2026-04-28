@@ -245,13 +245,7 @@ impl TimelockExecutorContract {
             panic!("grace period expired");
         }
 
-        // Perform the actual cross-contract invocation
-        let _: Val = env.invoke_contract(
-            &entry.target_contract,
-            &entry.function_name,
-            entry.args.clone(),
-        );
-
+        // CEI: update state before external call to prevent re-entrancy
         entry.status = TimelockStatus::Executed;
         entry.executed_at = Some(now);
         let _ttl_key = DataKey::Entry(entry_id);
@@ -260,6 +254,13 @@ impl TimelockExecutorContract {
             &_ttl_key,
             PERSISTENT_LIFETIME_THRESHOLD,
             PERSISTENT_BUMP_AMOUNT,
+        );
+
+        // Perform the actual cross-contract invocation
+        let _: Val = env.invoke_contract(
+            &entry.target_contract,
+            &entry.function_name,
+            entry.args.clone(),
         );
 
         env.events().publish(
