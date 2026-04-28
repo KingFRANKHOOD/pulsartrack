@@ -214,7 +214,9 @@ impl AnalyticsAggregatorContract {
 
         analytics.total_conversions += 1;
         if analytics.total_clicks > 0 {
-            analytics.cvr = (analytics.total_conversions * 10_000 / analytics.total_clicks) as u32;
+            analytics.cvr = ((analytics.total_conversions as u128 * 10_000
+                / analytics.total_clicks as u128) as u32)
+                .min(10_000);
         }
         analytics.last_updated = env.ledger().timestamp();
 

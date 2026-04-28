@@ -135,6 +135,10 @@ impl CampaignLifecycleContract {
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
         advertiser.require_auth();
 
+        if env.storage().persistent().has(&DataKey::Lifecycle(campaign_id)) {
+            panic!("campaign already registered");
+        }
+
         let lifecycle = CampaignLifecycle {
             campaign_id,
             advertiser: advertiser.clone(),

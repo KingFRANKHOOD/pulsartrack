@@ -19,7 +19,7 @@ pub fn propose_admin<K>(
     if current_admin != stored {
         panic!("unauthorized");
     }
-    env.storage().instance().set(pending_key, &new_admin);
+    env.storage().instance().set(pending_key, &(new_admin, env.ledger().sequence()));
 }
 
 pub fn accept_admin<K>(env: &Env, admin_key: &K, pending_key: &K, new_admin: Address)
@@ -27,7 +27,7 @@ where
     K: IntoVal<Env, Val> + TryFromVal<Env, Val> + Clone,
 {
     new_admin.require_auth();
-    let pending: Address = env
+    let (pending, proposed_at): (Address, u32) = env
         .storage()
         .instance()
         .get(pending_key)
@@ -35,6 +35,12 @@ where
     if new_admin != pending {
         panic!("not pending admin");
     }
+
+    const MIN_ADMIN_DELAY_LEDGERS: u32 = 17280;
+    if env.ledger().sequence() < proposed_at + MIN_ADMIN_DELAY_LEDGERS {
+        panic!("admin transfer time lock not elapsed");
+    }
+
     env.storage().instance().set(admin_key, &new_admin);
     env.storage().instance().remove(pending_key);
 }
