@@ -491,6 +491,10 @@ impl GovernanceDaoContract {
             panic!("unauthorized");
         }
 
+        if proposal.status != ProposalStatus::Active {
+            panic!("can only cancel active proposals");
+        }
+
         proposal.status = ProposalStatus::Cancelled;
         let _ttl_key = DataKey::Proposal(proposal_id);
         env.storage().persistent().set(&_ttl_key, &proposal);

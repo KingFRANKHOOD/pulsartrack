@@ -717,6 +717,79 @@ fn test_cancel_proposal_by_stranger_fails() {
     client.cancel_proposal(&stranger, &proposal_id);
 }
 
+#[test]
+#[should_panic(expected = "can only cancel active proposals")]
+fn test_cancel_passed_proposal_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, admin, _) = setup_with_mock_token(&env, 1_000);
+    let proposer = Address::generate(&env);
+    let voter = Address::generate(&env);
+    let proposal_id = client.create_proposal(&proposer, &make_title(&env), &make_desc(&env), &None);
+
+    client.cast_vote(&voter, &proposal_id, &VoteChoice::For, &200i128);
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number = 200;
+    });
+
+    client.finalize_proposal(&proposal_id);
+
+    let p = client.get_proposal(&proposal_id).unwrap();
+    assert!(matches!(p.status, ProposalStatus::Passed));
+
+    // Must reject — proposal already Passed
+    client.cancel_proposal(&admin, &proposal_id);
+}
+
+#[test]
+#[should_panic(expected = "can only cancel active proposals")]
+fn test_cancel_executed_proposal_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, admin, _) = setup_with_mock_token(&env, 1_000);
+    let proposer = Address::generate(&env);
+    let voter = Address::generate(&env);
+    let proposal_id = client.create_proposal(&proposer, &make_title(&env), &make_desc(&env), &None);
+
+    client.cast_vote(&voter, &proposal_id, &VoteChoice::For, &200i128);
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number = 200;
+    });
+
+    client.finalize_proposal(&proposal_id);
+    client.execute_proposal(&admin, &proposal_id);
+
+    let p = client.get_proposal(&proposal_id).unwrap();
+    assert!(matches!(p.status, ProposalStatus::Executed));
+
+    // Must reject — proposal already Executed
+    client.cancel_proposal(&admin, &proposal_id);
+}
+
+#[test]
+#[should_panic(expected = "can only cancel active proposals")]
+fn test_cancel_already_cancelled_proposal_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, _) = setup(&env);
+    let proposer = Address::generate(&env);
+
+    let proposal_id = client.create_proposal(&proposer, &make_title(&env), &make_desc(&env), &None);
+
+    // First cancel succeeds (proposal is Active)
+    client.cancel_proposal(&proposer, &proposal_id);
+
+    let p = client.get_proposal(&proposal_id).unwrap();
+    assert!(matches!(p.status, ProposalStatus::Cancelled));
+
+    // Second cancel must reject — already Cancelled
+    client.cancel_proposal(&proposer, &proposal_id);
+}
+
 // ─── read-only helpers ────────────────────────────────────────────────────────
 
 #[test]
