@@ -39,6 +39,7 @@ pub enum DataKey {
     TokenAddress,
     RefundCounter,
     AutoRefundPeriod,
+    PendingRefund(u64, Address),
     Refund(u64),
 }
 
@@ -84,6 +85,11 @@ impl RefundProcessorContract {
             panic!("invalid amount");
         }
 
+        let pending_refund_key = DataKey::PendingRefund(campaign_id, requester.clone());
+        if env.storage().persistent().has(&pending_refund_key) {
+            panic!("refund already pending for this campaign");
+        }
+
         let counter: u64 = env
             .storage()
             .instance()
@@ -112,6 +118,9 @@ impl RefundProcessorContract {
 
         let _ttl_key = DataKey::Refund(refund_id);
         env.storage().persistent().set(&_ttl_key, &refund);
+        env.storage()
+            .persistent()
+            .set(&pending_refund_key, &refund_id);
         env.storage().persistent().extend_ttl(
             &_ttl_key,
             PERSISTENT_LIFETIME_THRESHOLD,
@@ -178,6 +187,9 @@ impl RefundProcessorContract {
 
         let _ttl_key = DataKey::Refund(refund_id);
         env.storage().persistent().set(&_ttl_key, &refund);
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingRefund(refund.campaign_id, refund.requester.clone()));
         env.storage().persistent().extend_ttl(
             &_ttl_key,
             PERSISTENT_LIFETIME_THRESHOLD,
@@ -209,6 +221,9 @@ impl RefundProcessorContract {
         refund.status = RefundStatus::Processed;
         let _ttl_key = DataKey::Refund(refund_id);
         env.storage().persistent().set(&_ttl_key, &refund);
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingRefund(refund.campaign_id, refund.requester.clone()));
         env.storage().persistent().extend_ttl(
             &_ttl_key,
             PERSISTENT_LIFETIME_THRESHOLD,
