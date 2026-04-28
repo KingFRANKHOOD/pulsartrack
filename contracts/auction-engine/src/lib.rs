@@ -92,6 +92,18 @@ impl AuctionEngineContract {
         reserve_price: i128,
         duration_secs: u64,
     ) -> u64 {
+        if floor_price <= 0 {
+            panic!("floor price must be positive");
+        }
+
+        if reserve_price < floor_price {
+            panic!("reserve price must be >= floor price");
+        }
+
+        if duration_secs == 0 {
+            panic!("duration must be positive");
+        }
+
         env.storage()
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
