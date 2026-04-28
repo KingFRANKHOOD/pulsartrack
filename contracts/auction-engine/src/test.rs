@@ -101,6 +101,36 @@ fn test_create_auction() {
     assert_eq!(auction.bid_count, 0);
 }
 
+#[test]
+#[should_panic(expected = "floor price must be positive")]
+fn test_invalid_floor_price() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, _) = setup(&env);
+    let publisher = Address::generate(&env);
+    client.create_auction(&publisher, &slot(&env), &0i128, &5_000i128, &3600u64);
+}
+
+#[test]
+#[should_panic(expected = "reserve price must be >= floor price")]
+fn test_reserve_less_than_floor() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, _) = setup(&env);
+    let publisher = Address::generate(&env);
+    client.create_auction(&publisher, &slot(&env), &2_000i128, &1_000i128, &3600u64);
+}
+
+#[test]
+#[should_panic(expected = "duration must be positive")]
+fn test_zero_duration() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, _) = setup(&env);
+    let publisher = Address::generate(&env);
+    client.create_auction(&publisher, &slot(&env), &1_000i128, &5_000i128, &0u64);
+}
+
 // ─── place_bid ────────────────────────────────────────────────────────────────
 
 #[test]

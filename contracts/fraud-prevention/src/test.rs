@@ -204,7 +204,7 @@ fn test_flag_suspicious_oracle() {
 }
 
 #[test]
-#[should_panic(expected = "unauthorized - only admin or oracle can flag publishers")]
+#[should_panic(expected = "unauthorized")]
 fn test_flag_suspicious_unauthorized_fails() {
     let env = Env::default();
     env.mock_all_auths();
@@ -213,6 +213,17 @@ fn test_flag_suspicious_unauthorized_fails() {
     let publisher = Address::generate(&env);
 
     client.flag_suspicious(&stranger, &publisher);
+}
+
+#[test]
+#[should_panic]
+fn test_flag_suspicious_without_auth_fails() {
+    let env = Env::default();
+    // No mock_all_auths() here
+    let (client, admin) = setup(&env);
+    let publisher = Address::generate(&env);
+
+    client.flag_suspicious(&admin, &publisher);
 }
 
 #[test]

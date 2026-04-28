@@ -213,6 +213,7 @@ impl FraudPreventionContract {
             PERSISTENT_BUMP_AMOUNT,
         );
         env.storage().temporary().set(&rate_key, &(view_count + 1));
+        env.storage().temporary().extend_ttl(&rate_key, 720, 720);
 
         let current_day = env.ledger().timestamp() / 86_400;
         let cache_key = DataKey::VerificationCache(campaign_id, current_day);
@@ -237,6 +238,7 @@ impl FraudPreventionContract {
             + score as u64)
             / cache.total_views) as u32;
         env.storage().temporary().set(&cache_key, &cache);
+        env.storage().temporary().extend_ttl(&cache_key, 720, 720);
 
         if verified {
             let counter: u64 = env
@@ -262,6 +264,7 @@ impl FraudPreventionContract {
 
     /// Flag suspicious publisher activity
     pub fn flag_suspicious(env: Env, caller: Address, publisher: Address) {
+        caller.require_auth();
         Self::_require_admin_or_oracle(&env, &caller);
         env.storage()
             .instance()
@@ -453,7 +456,7 @@ impl FraudPreventionContract {
             .get(&DataKey::AuthorizedOracle(caller.clone()))
             .unwrap_or(false);
         if !is_oracle {
-            panic!("unauthorized - only admin or oracle can flag publishers");
+            panic!("unauthorized");
         }
     }
 
