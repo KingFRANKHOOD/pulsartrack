@@ -179,6 +179,11 @@ impl MultisigTreasuryContract {
             panic!("tx not pending");
         }
 
+        // Prevent proposer from approving their own transaction
+        if signer == tx.proposer {
+            panic!("proposer cannot approve own transaction");
+        }
+
         if env.ledger().timestamp() > tx.expires_at {
             tx.status = TxStatus::Expired;
             let _ttl_key = DataKey::Tx(tx_id);
