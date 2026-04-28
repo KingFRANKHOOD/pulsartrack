@@ -75,6 +75,12 @@ impl VestingScheduleContract {
             panic!("invalid cliff");
         }
 
+        let now = env.ledger().timestamp();
+        const MAX_BACKDATE_SECS: u64 = 7 * 24 * 3600; // allow up to 7 days backdating
+        if start_time + MAX_BACKDATE_SECS < now {
+            panic!("start_time too far in the past");
+        }
+
         let key = DataKey::Schedule(beneficiary.clone());
         let existing_claimed = env
             .storage()
