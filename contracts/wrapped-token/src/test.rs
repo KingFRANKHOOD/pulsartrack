@@ -121,6 +121,146 @@ fn test_burn_wrapped() {
 }
 
 #[test]
+fn test_set_relayer_rotates_mint_authority() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (c, admin, _) = setup(&env);
+    let new_relayer = Address::generate(&env);
+    let user = Address::generate(&env);
+    let stellar_token = Address::generate(&env);
+
+    c.register_wrapped_token(
+        &admin,
+        &s(&env, "wETH"),
+        &s(&env, "Wrapped Ether"),
+        &8u32,
+        &s(&env, "ethereum"),
+        &s(&env, "0xAddr"),
+        &stellar_token,
+    );
+    c.set_relayer(&admin, &new_relayer);
+    c.mint_wrapped(
+        &new_relayer,
+        &s(&env, "wETH"),
+        &user,
+        &1_000_000i128,
+        &s(&env, "0xRotatedTx"),
+    );
+
+    assert_eq!(c.get_user_balance(&s(&env, "wETH"), &user), 1_000_000);
+}
+
+#[test]
+#[should_panic(expected = "unauthorized relayer")]
+fn test_old_relayer_after_rotation_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (c, admin, old_relayer) = setup(&env);
+    let new_relayer = Address::generate(&env);
+    let user = Address::generate(&env);
+    let stellar_token = Address::generate(&env);
+
+    c.register_wrapped_token(
+        &admin,
+        &s(&env, "wETH"),
+        &s(&env, "Wrapped Ether"),
+        &8u32,
+        &s(&env, "ethereum"),
+        &s(&env, "0xAddr"),
+        &stellar_token,
+    );
+    c.set_relayer(&admin, &new_relayer);
+    c.mint_wrapped(
+        &old_relayer,
+        &s(&env, "wETH"),
+        &user,
+        &1_000_000i128,
+        &s(&env, "0xOldRelayerTx"),
+    );
+}
+
+#[test]
+#[should_panic(expected = "unauthorized")]
+fn test_set_relayer_by_stranger_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (c, _, _) = setup(&env);
+    let stranger = Address::generate(&env);
+    let new_relayer = Address::generate(&env);
+
+    c.set_relayer(&stranger, &new_relayer);
+}
+
+#[test]
+#[should_panic(expected = "minting paused")]
+fn test_mint_wrapped_paused_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (c, admin, relayer) = setup(&env);
+    let user = Address::generate(&env);
+    let stellar_token = Address::generate(&env);
+
+    c.register_wrapped_token(
+        &admin,
+        &s(&env, "wETH"),
+        &s(&env, "Wrapped Ether"),
+        &8u32,
+        &s(&env, "ethereum"),
+        &s(&env, "0xAddr"),
+        &stellar_token,
+    );
+    c.set_minting_paused(&admin, &true);
+    c.mint_wrapped(
+        &relayer,
+        &s(&env, "wETH"),
+        &user,
+        &1_000_000i128,
+        &s(&env, "0xPausedTx"),
+    );
+}
+
+#[test]
+#[should_panic(expected = "unauthorized")]
+fn test_set_minting_paused_by_stranger_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (c, _, _) = setup(&env);
+    let stranger = Address::generate(&env);
+
+    c.set_minting_paused(&stranger, &true);
+}
+
+#[test]
+fn test_mint_wrapped_after_unpause_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (c, admin, relayer) = setup(&env);
+    let user = Address::generate(&env);
+    let stellar_token = Address::generate(&env);
+
+    c.register_wrapped_token(
+        &admin,
+        &s(&env, "wETH"),
+        &s(&env, "Wrapped Ether"),
+        &8u32,
+        &s(&env, "ethereum"),
+        &s(&env, "0xAddr"),
+        &stellar_token,
+    );
+    c.set_minting_paused(&admin, &true);
+    c.set_minting_paused(&admin, &false);
+    c.mint_wrapped(
+        &relayer,
+        &s(&env, "wETH"),
+        &user,
+        &1_000_000i128,
+        &s(&env, "0xUnpausedTx"),
+    );
+
+    assert_eq!(c.get_user_balance(&s(&env, "wETH"), &user), 1_000_000);
+}
+
+#[test]
 fn test_get_wrapped_token_nonexistent() {
     let env = Env::default();
     env.mock_all_auths();
@@ -147,7 +287,7 @@ fn test_mint_wrapped_replay_attack_fails() {
     let (c, admin, relayer) = setup(&env);
     let user = Address::generate(&env);
     let stellar_token = Address::generate(&env);
-    
+
     c.register_wrapped_token(
         &admin,
         &s(&env, "wETH"),
@@ -157,7 +297,7 @@ fn test_mint_wrapped_replay_attack_fails() {
         &s(&env, "0xAddr"),
         &stellar_token,
     );
-    
+
     // First mint succeeds
     c.mint_wrapped(
         &relayer,
@@ -166,7 +306,7 @@ fn test_mint_wrapped_replay_attack_fails() {
         &1_000_000i128,
         &s(&env, "0xTxHash123"),
     );
-    
+
     // Second mint with same source_tx should fail
     c.mint_wrapped(
         &relayer,
@@ -184,7 +324,7 @@ fn test_mint_wrapped_different_tx_succeeds() {
     let (c, admin, relayer) = setup(&env);
     let user = Address::generate(&env);
     let stellar_token = Address::generate(&env);
-    
+
     c.register_wrapped_token(
         &admin,
         &s(&env, "wETH"),
@@ -194,7 +334,7 @@ fn test_mint_wrapped_different_tx_succeeds() {
         &s(&env, "0xAddr"),
         &stellar_token,
     );
-    
+
     // First mint
     c.mint_wrapped(
         &relayer,
@@ -203,7 +343,7 @@ fn test_mint_wrapped_different_tx_succeeds() {
         &1_000_000i128,
         &s(&env, "0xTxHash123"),
     );
-    
+
     // Second mint with different source_tx should succeed
     c.mint_wrapped(
         &relayer,
@@ -212,7 +352,7 @@ fn test_mint_wrapped_different_tx_succeeds() {
         &500_000i128,
         &s(&env, "0xTxHash456"),
     );
-    
+
     assert_eq!(c.get_user_balance(&s(&env, "wETH"), &user), 1_500_000);
 }
 
@@ -225,7 +365,7 @@ fn test_mint_wrapped_replay_different_recipient_fails() {
     let user1 = Address::generate(&env);
     let user2 = Address::generate(&env);
     let stellar_token = Address::generate(&env);
-    
+
     c.register_wrapped_token(
         &admin,
         &s(&env, "wETH"),
@@ -235,7 +375,7 @@ fn test_mint_wrapped_replay_different_recipient_fails() {
         &s(&env, "0xAddr"),
         &stellar_token,
     );
-    
+
     // First mint to user1
     c.mint_wrapped(
         &relayer,
@@ -244,7 +384,7 @@ fn test_mint_wrapped_replay_different_recipient_fails() {
         &1_000_000i128,
         &s(&env, "0xTxHash789"),
     );
-    
+
     // Attempt to mint same source_tx to different user should fail
     c.mint_wrapped(
         &relayer,
@@ -263,7 +403,7 @@ fn test_mint_wrapped_replay_different_amount_fails() {
     let (c, admin, relayer) = setup(&env);
     let user = Address::generate(&env);
     let stellar_token = Address::generate(&env);
-    
+
     c.register_wrapped_token(
         &admin,
         &s(&env, "wETH"),
@@ -273,7 +413,7 @@ fn test_mint_wrapped_replay_different_amount_fails() {
         &s(&env, "0xAddr"),
         &stellar_token,
     );
-    
+
     // First mint
     c.mint_wrapped(
         &relayer,
@@ -282,7 +422,7 @@ fn test_mint_wrapped_replay_different_amount_fails() {
         &1_000_000i128,
         &s(&env, "0xTxHashABC"),
     );
-    
+
     // Attempt to mint same source_tx with different amount should fail
     c.mint_wrapped(
         &relayer,

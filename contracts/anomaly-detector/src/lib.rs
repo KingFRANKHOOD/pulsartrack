@@ -67,6 +67,7 @@ const INSTANCE_LIFETIME_THRESHOLD: u32 = 17_280;
 const INSTANCE_BUMP_AMOUNT: u32 = 86_400;
 const PERSISTENT_LIFETIME_THRESHOLD: u32 = 34_560;
 const PERSISTENT_BUMP_AMOUNT: u32 = 259_200;
+const MAX_BASELINE_MULTIPLIER: u64 = 3; // Max 3x increase per update
 
 #[contract]
 pub struct AnomalyDetectorContract;
@@ -129,6 +130,54 @@ impl AnomalyDetectorContract {
         );
     }
 
+    pub fn update_baseline(env: Env, admin: Address, campaign_id: u64, new_impressions: u64, new_clicks: u64) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+        admin.require_auth();
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        if admin != stored_admin {
+            panic!("unauthorized");
+        }
+
+        let _ttl_key = DataKey::Baseline(campaign_id);
+        let current: Option<TrafficBaseline> = env.storage().persistent().get(&_ttl_key);
+
+        if let Some(baseline) = current {
+            let max_impressions = baseline
+                .avg_impressions_per_hour
+                .saturating_mul(MAX_BASELINE_MULTIPLIER);
+            let max_clicks = baseline.avg_clicks_per_hour.saturating_mul(MAX_BASELINE_MULTIPLIER);
+
+            if new_impressions > max_impressions {
+                panic!("baseline change too large");
+            }
+            if new_clicks > max_clicks {
+                panic!("baseline change too large");
+            }
+
+            env.events().publish(
+                (symbol_short!("baseline"), symbol_short!("updated")),
+                (campaign_id, baseline.avg_impressions_per_hour, new_impressions),
+            );
+        }
+
+        let new_baseline = TrafficBaseline {
+            campaign_id,
+            avg_impressions_per_hour: new_impressions,
+            avg_clicks_per_hour: new_clicks,
+            spike_threshold_pct: 300,
+            last_updated: env.ledger().timestamp(),
+        };
+
+        env.storage().persistent().set(&_ttl_key, &new_baseline);
+        env.storage().persistent().extend_ttl(
+            &_ttl_key,
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
+    }
+
     pub fn report_anomaly(
         env: Env,
         oracle: Address,
@@ -160,23 +209,25 @@ impl AnomalyDetectorContract {
             .storage()
             .persistent()
             .get(&DataKey::Baseline(campaign_id));
-        
+
         if let Some(b) = baseline {
             // Calculate threshold multiplier (e.g., 300% = 3.0x)
             let threshold_multiplier = b.spike_threshold_pct as u64;
-            
+
             // Check if current metrics exceed baseline thresholds
-            let impressions_threshold = b.avg_impressions_per_hour
+            let impressions_threshold = b
+                .avg_impressions_per_hour
                 .saturating_mul(threshold_multiplier)
                 .saturating_div(100);
-            let clicks_threshold = b.avg_clicks_per_hour
+            let clicks_threshold = b
+                .avg_clicks_per_hour
                 .saturating_mul(threshold_multiplier)
                 .saturating_div(100);
-            
+
             // Validate that at least one metric exceeds the threshold
             let impressions_exceeded = current_impressions_per_hour > impressions_threshold;
             let clicks_exceeded = current_clicks_per_hour > clicks_threshold;
-            
+
             if !impressions_exceeded && !clicks_exceeded {
                 panic!("metrics do not exceed baseline thresholds");
             }

@@ -39,12 +39,22 @@ export function useContractCall() {
 /**
  * Hook for contract read-only operations
  */
+function getArgsKey(args: any[]): string {
+  return args
+    .map((arg) => {
+      if (!arg || typeof arg.__type === "undefined") return JSON.stringify(arg);
+      return `${arg.__type}:${String(arg.value)}`;
+    })
+    .join(",");
+}
+
 export function useContractRead<T = any>(
   options: ReadOnlyOptions,
   enabled = true,
 ) {
+  const argsKey = options.args ? getArgsKey(options.args) : "";
   return useQuery<T, Error>({
-    queryKey: ["contract", options.contractId, options.method, options.args],
+    queryKey: ["contract", options.contractId, options.method, argsKey],
     queryFn: () => callReadOnly(options),
     enabled: enabled && !!options.contractId,
     staleTime: 30_000,
@@ -111,6 +121,32 @@ export function useCampaignCount(enabled = true) {
   );
 }
 
+export interface AdvertiserCampaign {
+  id: number;
+  advertiser?: string;
+  budget?: bigint | number;
+  target_views?: bigint | number;
+  current_views?: bigint | number;
+  status?: Record<string, unknown> | string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function toBigintOrNumber(value: unknown): bigint | number | undefined {
+  if (typeof value === "bigint" || typeof value === "number") return value;
+  return undefined;
+}
+
+function normalizeStatus(
+  value: unknown,
+): Record<string, unknown> | string | undefined {
+  if (typeof value === "string") return value;
+  if (isRecord(value)) return value;
+  return undefined;
+}
+
 /**
  * Hook to get all campaigns for an advertiser
  */
@@ -119,11 +155,11 @@ export function useAdvertiserCampaigns(
   campaignCount: number | undefined,
   enabled = true,
 ) {
-  return useQuery({
+  return useQuery<AdvertiserCampaign[]>({
     queryKey: ["advertiser_campaigns", advertiserAddress, campaignCount],
     queryFn: async () => {
       if (!campaignCount) return [];
-      const campaigns: any[] = [];
+      const campaigns: AdvertiserCampaign[] = [];
       // Fetch concurrently for better performance
       const promises = [];
       for (let i = 1; i <= campaignCount; i++) {
@@ -134,11 +170,27 @@ export function useAdvertiserCampaigns(
             args: [u64ToScVal(i)],
           })
             .then((campaign) => {
-              if (campaign && campaign.advertiser === advertiserAddress) {
-                campaigns.push({ id: i, ...campaign });
-              }
+              if (!isRecord(campaign)) return;
+
+              const advertiser =
+                typeof campaign.advertiser === "string"
+                  ? campaign.advertiser
+                  : undefined;
+              if (!advertiser || advertiser !== advertiserAddress) return;
+
+              campaigns.push({
+                id: i,
+                advertiser,
+                budget: toBigintOrNumber(campaign.budget),
+                target_views: toBigintOrNumber(campaign.target_views),
+                current_views: toBigintOrNumber(campaign.current_views),
+                status: normalizeStatus(campaign.status),
+              });
             })
-            .catch(() => null), // Ignore missing or failed campaigns
+            .catch((err) => {
+              console.error(`Failed to fetch campaign ${i}:`, err);
+              return null;
+            }),
         );
       }
       await Promise.all(promises);
@@ -278,6 +330,11 @@ export function useSetConsent() {
     expiresInDays?: number;
   }) => {
     if (!address) return;
+
+    const expirationTs = params.expiresInDays
+      ? Math.floor(Date.now() / 1000) + params.expiresInDays * 86400
+      : 0; // 0 = no expiry
+
     mutate({
       contractId: CONTRACT_IDS.PRIVACY_LAYER,
       method: "set_consent",
@@ -288,6 +345,7 @@ export function useSetConsent() {
         boolToScVal(params.targetedAds),
         boolToScVal(params.analytics),
         boolToScVal(params.thirdPartySharing),
+        u64ToScVal(expirationTs),
       ],
     });
   };
@@ -408,6 +466,8 @@ export function useCreateProposal() {
   const { mutateAsync, ...rest } = useContractCall();
   const { address } = useWalletStore();
 
+  const LEDGERS_PER_DAY = 17_280;
+
   const createProposal = async (params: {
     title: string;
     description: string;
@@ -422,7 +482,7 @@ export function useCreateProposal() {
         addressToScVal(address),
         stringToScVal(params.title),
         stringToScVal(params.description),
-        u64ToScVal(params.votingPeriodDays * 86400),
+        u64ToScVal(params.votingPeriodDays * LEDGERS_PER_DAY),
       ],
     });
   };

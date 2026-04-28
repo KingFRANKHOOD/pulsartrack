@@ -27,8 +27,8 @@ pub struct UserRewards {
     pub total_claimed: i128,
     pub pending: i128,
     pub last_earned: u64,
-    pub vesting_start: u64,     // timestamp when vesting begins
-    pub vesting_duration: u64,  // total vesting period in seconds
+    pub vesting_start: u64,    // timestamp when vesting begins
+    pub vesting_duration: u64, // total vesting period in seconds
 }
 
 #[contracttype]
@@ -165,7 +165,8 @@ impl RewardsDistributorContract {
         // Update user rewards with vesting schedule
         let key = DataKey::UserRewards(recipient.clone());
         let now = env.ledger().timestamp();
-        let vesting_duration = 365 * 24 * 3600; // 365 days in seconds
+        let ledger_duration = program.end_ledger - program.start_ledger;
+        let vesting_duration = ledger_duration * 5; // ~5 seconds per ledger
         let mut rewards: UserRewards =
             env.storage().persistent().get(&key).unwrap_or(UserRewards {
                 user: recipient.clone(),
@@ -173,17 +174,18 @@ impl RewardsDistributorContract {
                 total_claimed: 0,
                 pending: 0,
                 last_earned: 0,
-                vesting_start: now,
+                vesting_start: 0,
                 vesting_duration,
             });
 
-        // Initialize vesting_start on first distribution if not set
-        if rewards.total_earned == 0 {
+        // Initialize vesting_start on first distribution using vesting_start == 0 as sentinel
+        if rewards.vesting_start == 0 {
             rewards.vesting_start = now;
             rewards.vesting_duration = vesting_duration;
         }
 
         rewards.total_earned += amount;
+        rewards.pending += amount;
         rewards.last_earned = now;
         env.storage().persistent().set(&key, &rewards);
         env.storage().persistent().extend_ttl(
@@ -225,6 +227,7 @@ impl RewardsDistributorContract {
 
         // --- CEI: Effects before Interactions ---
         rewards.total_claimed += claimable;
+        rewards.pending = rewards.pending.saturating_sub(claimable);
         env.storage().persistent().set(&key, &rewards);
         env.storage().persistent().extend_ttl(
             &key,

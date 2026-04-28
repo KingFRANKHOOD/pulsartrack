@@ -84,6 +84,9 @@ impl TokenBridgeContract {
         if admin != stored_admin {
             panic!("unauthorized");
         }
+        if max_daily_limit <= 0 {
+            panic!("max_daily_limit must be positive");
+        }
         let _ttl_key = DataKey::SupportedChain(chain);
         env.storage().persistent().set(&_ttl_key, &max_daily_limit);
         env.storage().persistent().extend_ttl(
@@ -135,7 +138,10 @@ impl TokenBridgeContract {
             .instance()
             .get(&DataKey::BridgeFeesBps)
             .unwrap_or(50);
-        let bridge_fee = (amount * fee_bps as i128) / 10_000;
+        let bridge_fee = amount
+            .checked_mul(fee_bps as i128)
+            .expect("bridge fee calculation overflow")
+            / 10_000;
         let net_amount = amount - bridge_fee;
 
         // Lock tokens in bridge contract

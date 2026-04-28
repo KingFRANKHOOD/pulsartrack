@@ -1,24 +1,17 @@
 "use client";
 
-import { useState } from "react";
-import {
-  PlusCircle,
-  BarChart3,
-  Settings,
-  DollarSign,
-  TrendingUp,
-  Eye,
-  MousePointer,
-} from "lucide-react";
-import { useWalletStore } from "@/store/wallet-store";
-import { WalletConnectButton } from "@/components/wallet/WalletModal";
+import { useState } from 'react';
+import { PlusCircle, BarChart3, Settings, DollarSign, TrendingUp, Eye, MousePointer } from 'lucide-react';
+import { useWalletStore } from '@/store/wallet-store';
+import { WalletConnectButton } from '@/components/wallet/WalletModal';
 import {
   useCreateCampaign,
   useCampaignCount,
   useAdvertiserCampaigns,
   useAdvertiserStats,
-} from "@/hooks/useContract";
-import { formatXlm, formatNumber } from "@/lib/display-utils";
+  AdvertiserCampaign,
+} from '@/hooks/useContract';
+import { formatXlm, formatNumber } from '@/lib/display-utils';
 
 interface CampaignForm {
   title: string;
@@ -57,9 +50,8 @@ export default function AdvertiserPage() {
     useAdvertiserCampaigns(address as string, Number(campaignCount));
 
   const [form, setForm] = useState<CampaignForm>(EMPTY_FORM);
-  const [activeTab, setActiveTab] = useState<
-    "campaigns" | "create" | "analytics"
-  >("campaigns");
+  const [activeTab, setActiveTab] = useState<'campaigns' | 'create' | 'analytics'>('campaigns');
+  const errors: Record<string, string[]> = {};
 
   if (!isConnected) {
     return (
@@ -83,17 +75,17 @@ export default function AdvertiserPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Update to use new campaign parameters
-    // createCampaign({
-    //   campaignType: 1,
-    //   budgetXlm: parseFloat(form.budgetXlm) || 0,
-    //   costPerViewXlm: 0.001,
-    //   durationDays: parseInt(form.durationDays) || 30,
-    //   targetViews: 10000,
-    //   dailyViewLimit: 1000,
-    //   refundable: true,
-    // });
-    console.warn("Campaign creation temporarily disabled - form needs update");
+    createCampaign({
+      title: form.title,
+      contentId: form.contentId,
+      campaignType: 0,
+      budgetXlm: parseFloat(form.budgetXlm) || 0,
+      costPerViewXlm: parseFloat(form.dailyBudgetXlm) || 0,
+      durationDays: parseInt(form.durationDays) || 30,
+      targetViews: 0,
+      dailyViewLimit: 0,
+      refundable: false,
+    });
   };
 
   return (
@@ -216,7 +208,7 @@ export default function AdvertiserPage() {
                 </div>
               ) : campaigns && campaigns.length > 0 ? (
                 <div className="space-y-4">
-                  {campaigns.map((camp: any) => (
+                  {campaigns.map((camp: AdvertiserCampaign) => (
                     <div
                       key={camp.id}
                       className="p-4 border border-gray-200 rounded-lg flex justify-between items-center"
@@ -225,14 +217,26 @@ export default function AdvertiserPage() {
                         <h3 className="font-semibold">Campaign #{camp.id}</h3>
                         <p className="text-sm text-gray-500">
                           Status:{" "}
-                          {Object.keys(camp.status || {})[0] || "Unknown"}
+                          {typeof camp.status === "string"
+                            ? camp.status
+                            : Object.keys(camp.status || {})[0] || "Unknown"}
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="font-medium">{formatXlm(camp.budget)}</p>
+                        <p className="font-medium">
+                          {camp.budget !== undefined
+                            ? formatXlm(camp.budget)
+                            : "—"}
+                        </p>
                         <p className="text-xs text-gray-500">
-                          {camp.current_views?.toString() || 0} /{" "}
-                          {camp.target_views?.toString() || 0} Views
+                          {camp.current_views !== undefined
+                            ? formatNumber(camp.current_views)
+                            : 0}{" "}
+                          /{" "}
+                          {camp.target_views !== undefined
+                            ? formatNumber(camp.target_views)
+                            : 0}{" "}
+                          Views
                         </p>
                       </div>
                     </div>
@@ -273,6 +277,14 @@ export default function AdvertiserPage() {
               )}
 
               <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Show validation errors */}
+                {Object.keys(errors).length > 0 && (
+                  <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                    {Object.entries(errors).map(([field, msgs]) =>
+                      msgs?.map((msg, i) => <div key={field + i}>{msg}</div>)
+                    )}
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Campaign Title

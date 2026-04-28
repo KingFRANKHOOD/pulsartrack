@@ -28,7 +28,16 @@ pub struct RefundRequest {
     pub reason: String,
     pub status: RefundStatus,
     pub submitted_at: u64,
+    pub deadline: u64, // Refund deadline timestamp
     pub resolved_at: Option<u64>,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct Campaign {
+    pub total_budget: i128,
+    pub end_time: u64,           // Campaign end timestamp
+    pub refund_deadline: u64,    // Deadline for submitting refund requests
 }
 
 #[contracttype]
@@ -41,6 +50,7 @@ pub enum DataKey {
     AutoRefundPeriod,
     PendingRefund(u64, Address),
     Refund(u64),
+    Campaign(u64),
 }
 
 const INSTANCE_LIFETIME_THRESHOLD: u32 = 17_280;
@@ -85,9 +95,14 @@ impl RefundProcessorContract {
             panic!("invalid amount");
         }
 
-        let pending_refund_key = DataKey::PendingRefund(campaign_id, requester.clone());
-        if env.storage().persistent().has(&pending_refund_key) {
-            panic!("refund already pending for this campaign");
+        let campaign: Campaign = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Campaign(campaign_id))
+            .expect("campaign not found");
+
+        if amount > campaign.total_budget {
+            panic!("refund amount exceeds campaign budget");
         }
 
         let counter: u64 = env
@@ -103,6 +118,14 @@ impl RefundProcessorContract {
             .get(&DataKey::TokenAddress)
             .unwrap();
 
+        let auto_refund_period: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::AutoRefundPeriod)
+            .unwrap_or(604_800u64);
+
+        let refund_deadline = campaign.end_time + auto_refund_period;
+
         let refund = RefundRequest {
             refund_id,
             requester: requester.clone(),
@@ -113,6 +136,7 @@ impl RefundProcessorContract {
             reason,
             status: RefundStatus::Requested,
             submitted_at: env.ledger().timestamp(),
+            deadline: refund_deadline,
             resolved_at: None,
         };
 
@@ -151,6 +175,12 @@ impl RefundProcessorContract {
 
         if refund.status != RefundStatus::Requested && refund.status != RefundStatus::UnderReview {
             panic!("invalid status");
+        }
+
+        // Check refund deadline has not passed
+        let now = env.ledger().timestamp();
+        if now > refund.deadline {
+            panic!("refund deadline has passed");
         }
 
         refund.amount_approved = approved_amount.min(refund.amount_requested);
@@ -197,21 +227,37 @@ impl RefundProcessorContract {
         );
     }
 
-    pub fn process_refund(env: Env, refund_id: u64) {
+    pub fn process_refund(env: Env, caller: Address, refund_id: u64) {
         env.storage()
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+        caller.require_auth();
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         let mut refund: RefundRequest = env
             .storage()
             .persistent()
             .get(&DataKey::Refund(refund_id))
             .expect("refund not found");
 
+        if caller != admin && caller != refund.requester {
+            panic!("unauthorized");
+        }
+
         if refund.status != RefundStatus::Approved {
             panic!("refund not approved");
         }
 
+        // Check refund deadline has not passed
+        let now = env.ledger().timestamp();
+        if now > refund.deadline {
+            panic!("refund deadline has passed");
+        }
+
         let token_client = token::Client::new(&env, &refund.token);
+        let balance = token_client.balance(&env.current_contract_address());
+        if balance < refund.amount_approved {
+            panic!("insufficient contract balance for refund");
+        }
         token_client.transfer(
             &env.current_contract_address(),
             &refund.requester,

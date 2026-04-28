@@ -65,8 +65,8 @@ pub enum DataKey {
 
 const INSTANCE_LIFETIME_THRESHOLD: u32 = 17_280;
 const INSTANCE_BUMP_AMOUNT: u32 = 86_400;
-const PERSISTENT_LIFETIME_THRESHOLD: u32 = 34_560;
-const PERSISTENT_BUMP_AMOUNT: u32 = 259_200;
+const PERSISTENT_LIFETIME_THRESHOLD: u32 = 120_960;
+const PERSISTENT_BUMP_AMOUNT: u32 = 1_051_200;
 
 #[contract]
 pub struct DisputeResolutionContract;
@@ -255,7 +255,7 @@ impl DisputeResolutionContract {
             panic!("already resolved");
         }
 
-        let (claimant_amount, respondent_amount) = match outcome {
+        let (claimant_amount, respondent_amount) = match &outcome {
             DisputeOutcome::Claimant => (dispute.claim_amount, 0),
             DisputeOutcome::Respondent => (0, dispute.claim_amount),
             DisputeOutcome::Split => {
@@ -295,6 +295,15 @@ impl DisputeResolutionContract {
             }
         }
 
+        if outcome == DisputeOutcome::NoAction && dispute.claim_amount > 0 {
+            let token_client = token::Client::new(&env, &dispute.token);
+            token_client.transfer(
+                &env.current_contract_address(),
+                &dispute.claimant,
+                &dispute.claim_amount,
+            );
+        }
+
         let fee: i128 = env
             .storage()
             .instance()
@@ -302,33 +311,7 @@ impl DisputeResolutionContract {
             .unwrap_or(0);
         if fee > 0 {
             let token_client = token::Client::new(&env, &dispute.token);
-            match outcome {
-                DisputeOutcome::Claimant => {
-                    token_client.transfer(&env.current_contract_address(), &dispute.claimant, &fee);
-                }
-                DisputeOutcome::Respondent => {
-                    token_client.transfer(&env.current_contract_address(), &dispute.respondent, &fee);
-                }
-                DisputeOutcome::Split => {
-                    let claimant_fee = fee / 2;
-                    let respondent_fee = fee - claimant_fee;
-                    if claimant_fee > 0 {
-                        token_client.transfer(
-                            &env.current_contract_address(),
-                            &dispute.claimant,
-                            &claimant_fee,
-                        );
-                    }
-                    if respondent_fee > 0 {
-                        token_client.transfer(
-                            &env.current_contract_address(),
-                            &dispute.respondent,
-                            &respondent_fee,
-                        );
-                    }
-                }
-                DisputeOutcome::NoAction | DisputeOutcome::Pending => {}
-            }
+            token_client.transfer(&env.current_contract_address(), &dispute.claimant, &fee);
         }
 
         dispute.outcome = outcome;
@@ -392,7 +375,11 @@ impl DisputeResolutionContract {
         if admin != stored_admin {
             panic!("unauthorized");
         }
-        if !env.storage().persistent().has(&DataKey::Dispute(dispute_id)) {
+        if !env
+            .storage()
+            .persistent()
+            .has(&DataKey::Dispute(dispute_id))
+        {
             panic!("dispute not found");
         }
         let _ttl_key = DataKey::DisputeEscrow(dispute_id);
@@ -425,15 +412,12 @@ impl DisputeResolutionContract {
         claimant_amount: i128,
         respondent_amount: i128,
     ) -> bool {
-        let escrow_contract: Address = if let Some(addr) = env
-            .storage()
-            .instance()
-            .get(&DataKey::EscrowContract)
-        {
-            addr
-        } else {
-            return false;
-        };
+        let escrow_contract: Address =
+            if let Some(addr) = env.storage().instance().get(&DataKey::EscrowContract) {
+                addr
+            } else {
+                return false;
+            };
         let escrow_id: u64 = if let Some(id) = env
             .storage()
             .persistent()

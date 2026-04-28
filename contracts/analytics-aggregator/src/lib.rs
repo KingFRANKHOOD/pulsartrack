@@ -54,6 +54,19 @@ const INSTANCE_BUMP_AMOUNT: u32 = 86_400;
 const PERSISTENT_LIFETIME_THRESHOLD: u32 = 120_960;
 const PERSISTENT_BUMP_AMOUNT: u32 = 1_051_200;
 
+fn require_oracle(env: &Env, caller: &Address) {
+    caller.require_auth();
+    let stored_oracle: Address = env
+        .storage()
+        .instance()
+        .get(&DataKey::OracleAddress)
+        .expect("oracle not set");
+
+    if caller != &stored_oracle {
+        panic!("only oracle can record analytics");
+    }
+}
+
 #[contract]
 pub struct AnalyticsAggregatorContract;
 
@@ -86,12 +99,7 @@ impl AnalyticsAggregatorContract {
         env.storage()
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
-        let _stored_oracle: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::OracleAddress)
-            .unwrap();
-        caller.require_auth();
+        require_oracle(&env, &caller);
 
         let mut analytics: CampaignAnalytics = env
             .storage()
@@ -115,8 +123,15 @@ impl AnalyticsAggregatorContract {
         analytics.last_updated = env.ledger().timestamp();
 
         if analytics.total_impressions > 0 {
-            analytics.ctr = (analytics.total_clicks * 10_000 / analytics.total_impressions) as u32;
-            analytics.cpm = (analytics.total_spend * 1_000) / analytics.total_impressions as i128;
+            // Use u128 for CTR calculation and clamp to 10,000 (100%)
+            analytics.ctr = ((analytics.total_clicks as u128 * 10_000
+                / analytics.total_impressions as u128) as u32)
+                .min(10_000);
+            // Use checked/saturating arithmetic for CPM
+            analytics.cpm = (analytics.total_spend as i128)
+                .saturating_mul(1_000)
+                .checked_div(analytics.total_impressions as i128)
+                .unwrap_or(0);
         }
 
         let _ttl_key = DataKey::CampaignAnalytics(campaign_id);
@@ -156,7 +171,7 @@ impl AnalyticsAggregatorContract {
         env.storage()
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
-        caller.require_auth();
+        require_oracle(&env, &caller);
 
         let mut analytics: CampaignAnalytics = env
             .storage()
@@ -166,7 +181,9 @@ impl AnalyticsAggregatorContract {
 
         analytics.total_clicks += 1;
         if analytics.total_impressions > 0 {
-            analytics.ctr = (analytics.total_clicks * 10_000 / analytics.total_impressions) as u32;
+            analytics.ctr = ((analytics.total_clicks as u128 * 10_000
+                / analytics.total_impressions as u128) as u32)
+                .min(10_000);
         }
         analytics.last_updated = env.ledger().timestamp();
 
@@ -187,7 +204,7 @@ impl AnalyticsAggregatorContract {
         env.storage()
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
-        caller.require_auth();
+        require_oracle(&env, &caller);
 
         let mut analytics: CampaignAnalytics = env
             .storage()
@@ -197,8 +214,9 @@ impl AnalyticsAggregatorContract {
 
         analytics.total_conversions += 1;
         if analytics.total_clicks > 0 {
-            analytics.cvr =
-                (analytics.total_conversions * 10_000 / analytics.total_clicks) as u32;
+            analytics.cvr = ((analytics.total_conversions as u128 * 10_000
+                / analytics.total_clicks as u128) as u32)
+                .min(10_000);
         }
         analytics.last_updated = env.ledger().timestamp();
 

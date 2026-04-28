@@ -1,7 +1,7 @@
 #![cfg(test)]
 use super::*;
 use soroban_sdk::{
-    testutils::Address as _,
+    testutils::{Address as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
     Address, Env,
 };
@@ -150,6 +150,26 @@ fn test_process_payment() {
     assert_eq!(tc.balance(&recipient), 9_750);
     assert_eq!(tc.balance(&treasury), 250);
     assert_eq!(tc.balance(&payer), 990_000);
+}
+
+#[test]
+fn test_get_daily_volume_tracking() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _, token_admin, token_addr) = setup(&env);
+    client.add_token(&admin, &token_addr, &1_000i128, &100_000_000i128);
+
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    mint(&env, &token_addr, &token_admin, &payer, 1_000_000);
+
+    assert_eq!(client.get_daily_volume(&token_addr), 0);
+
+    client.process_payment(&payer, &recipient, &token_addr, &10_000i128);
+    assert_eq!(client.get_daily_volume(&token_addr), 10_000);
+
+    client.process_payment(&payer, &recipient, &token_addr, &5_000i128);
+    assert_eq!(client.get_daily_volume(&token_addr), 15_000);
 }
 
 #[test]
@@ -341,6 +361,46 @@ fn test_payment_daily_limit_exceeded() {
     client.process_payment(&payer, &recipient, &token_addr, &10_000i128); // 20_000 > 15_000
 }
 
+#[test]
+fn test_daily_volume_ttl_covers_remaining_day() {
+    let env = Env::default();
+
+    env.ledger().with_mut(|li| {
+        li.timestamp = 86_399;
+    });
+    assert_eq!(PaymentProcessorContract::daily_volume_ttl_ledgers(&env), 1);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp = 43_200;
+    });
+    assert_eq!(
+        PaymentProcessorContract::daily_volume_ttl_ledgers(&env),
+        8_641
+    );
+}
+
+#[test]
+fn test_daily_limit_resets_on_next_day() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _, token_admin, token_addr) = setup(&env);
+    client.add_token(&admin, &token_addr, &1_000i128, &15_000i128);
+
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    mint(&env, &token_addr, &token_admin, &payer, 1_000_000);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp = 1;
+    });
+    client.process_payment(&payer, &recipient, &token_addr, &10_000i128);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp = 86_401;
+    });
+    client.process_payment(&payer, &recipient, &token_addr, &10_000i128);
+}
+
 // ─── set_platform_fee ────────────────────────────────────────────────────────
 
 #[test]
@@ -377,6 +437,12 @@ fn test_admin_transfer_flow() {
     let new_admin = Address::generate(&env);
 
     c.propose_admin(&admin, &new_admin);
+    
+    // Advance sequence to satisfy time lock
+    env.ledger().with_mut(|li| {
+        li.sequence_number += 17281;
+    });
+
     c.accept_admin(&new_admin);
 
     // Verify new admin can perform admin actions

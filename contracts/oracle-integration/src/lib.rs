@@ -113,6 +113,13 @@ impl OracleIntegrationContract {
         oracle.require_auth();
         Self::_require_oracle(&env, &oracle);
 
+        if price_usd <= 0 {
+            panic!("price must be positive");
+        }
+        if confidence == 0 || confidence > 100 {
+            panic!("confidence must be 1-100");
+        }
+
         let feed = PriceFeed {
             asset: asset.clone(),
             price_usd,
@@ -149,6 +156,16 @@ impl OracleIntegrationContract {
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
         oracle.require_auth();
         Self::_require_oracle(&env, &oracle);
+
+        if campaign_id == 0 {
+            panic!("invalid campaign id");
+        }
+        if fraud_score > 100 {
+            panic!("fraud score must be 0-100");
+        }
+        if clicks > impressions {
+            panic!("clicks cannot exceed impressions");
+        }
 
         let data = PerformanceData {
             campaign_id,

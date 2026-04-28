@@ -177,6 +177,9 @@ impl LiquidityPoolContract {
             .get(&DataKey::TotalShares)
             .unwrap_or(0);
 
+        if total_shares == 0 {
+            panic!("no shares in pool");
+        }
         let amount = (shares * pool.total_liquidity) / total_shares;
         let available = pool.total_liquidity - pool.total_borrowed;
 
@@ -225,6 +228,10 @@ impl LiquidityPoolContract {
             panic!("insufficient liquidity");
         }
 
+        if duration_secs == 0 {
+            panic!("duration_secs must be greater than zero");
+        }
+
         if env
             .storage()
             .persistent()
@@ -234,7 +241,9 @@ impl LiquidityPoolContract {
         }
 
         pool.total_borrowed += amount;
-        pool.utilization_rate = ((pool.total_borrowed * 100) / pool.total_liquidity) as u32;
+        if pool.total_liquidity > 0 {
+            pool.utilization_rate = ((pool.total_borrowed * 100) / pool.total_liquidity) as u32;
+        }
         pool.last_updated = env.ledger().timestamp();
         env.storage().instance().set(&DataKey::PoolState, &pool);
 
@@ -271,17 +280,17 @@ impl LiquidityPoolContract {
     fn calculate_interest(env: &Env, borrowed: i128, borrowed_at: u64, rate_bps: u32) -> i128 {
         let now = env.ledger().timestamp();
         let time_elapsed = now.saturating_sub(borrowed_at);
-        
+
         // Approximate seconds per year (365.25 days)
         const SECONDS_PER_YEAR: u64 = 31_557_600;
-        
+
         // interest = principal * rate_bps * time_elapsed / (10000 * SECONDS_PER_YEAR)
         // Using i128 to avoid overflow
         let interest = (borrowed as i128)
             .saturating_mul(rate_bps as i128)
             .saturating_mul(time_elapsed as i128)
             / (10000i128 * SECONDS_PER_YEAR as i128);
-        
+
         interest
     }
 
@@ -298,12 +307,17 @@ impl LiquidityPoolContract {
             .expect("borrow not found");
 
         let pool: PoolState = env.storage().instance().get(&DataKey::PoolState).unwrap();
-        
+
         // Calculate new interest since last accrual
-        let new_interest = Self::calculate_interest(&env, borrow.borrowed, borrow.borrowed_at, pool.borrow_rate_bps);
-        
+        let new_interest = Self::calculate_interest(
+            &env,
+            borrow.borrowed,
+            borrow.borrowed_at,
+            pool.borrow_rate_bps,
+        );
+
         borrow.interest_accrued = new_interest;
-        
+
         let _ttl_key = DataKey::Borrow(campaign_id);
         env.storage().persistent().set(&_ttl_key, &borrow);
         env.storage().persistent().extend_ttl(
@@ -333,11 +347,16 @@ impl LiquidityPoolContract {
 
         // Accrue interest up to current time
         let pool: PoolState = env.storage().instance().get(&DataKey::PoolState).unwrap();
-        let accrued_interest = Self::calculate_interest(&env, borrow.borrowed, borrow.borrowed_at, pool.borrow_rate_bps);
+        let accrued_interest = Self::calculate_interest(
+            &env,
+            borrow.borrowed,
+            borrow.borrowed_at,
+            pool.borrow_rate_bps,
+        );
         borrow.interest_accrued = accrued_interest;
-        
+
         let total_owed = borrow.borrowed + borrow.interest_accrued;
-        
+
         if amount < total_owed {
             panic!("insufficient payment");
         }
@@ -351,18 +370,21 @@ impl LiquidityPoolContract {
         token_client.transfer(&borrower, &env.current_contract_address(), &amount);
 
         let mut pool: PoolState = env.storage().instance().get(&DataKey::PoolState).unwrap();
-        
+
         // Separate principal repayment from interest
         let principal_repaid = borrow.borrowed;
         let interest_paid = borrow.interest_accrued;
         let overpayment = amount.saturating_sub(total_owed);
-        
+
         // Reduce total_borrowed by principal repaid
         pool.total_borrowed -= principal_repaid;
-        
-        // Interest goes to separate reserve (not added to total_liquidity)
-        pool.interest_reserve += interest_paid;
-        
+
+        // Split interest: reserve_factor% → protocol reserve, rest → lenders (via total_liquidity)
+        let protocol_share = (interest_paid * pool.reserve_factor as i128) / 100;
+        let lender_share = interest_paid - protocol_share;
+        pool.interest_reserve += protocol_share;
+        pool.total_liquidity += lender_share;
+
         if pool.total_liquidity > 0 {
             pool.utilization_rate = ((pool.total_borrowed * 100) / pool.total_liquidity) as u32;
         }
@@ -372,12 +394,12 @@ impl LiquidityPoolContract {
         env.storage()
             .persistent()
             .remove(&DataKey::Borrow(campaign_id));
-        
+
         // Return overpayment if any
         if overpayment > 0 {
             token_client.transfer(&env.current_contract_address(), &borrower, &overpayment);
         }
-        
+
         env.events().publish(
             (symbol_short!("pool"), symbol_short!("repay")),
             (borrower, campaign_id, principal_repaid, interest_paid),
