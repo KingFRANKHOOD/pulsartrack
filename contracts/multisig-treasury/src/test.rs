@@ -417,6 +417,54 @@ fn test_reject_by_non_signer() {
     client.reject_transaction(&stranger, &tx_id);
 }
 
+#[test]
+#[should_panic(expected = "already voted")]
+fn test_reject_after_approve_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, signers, _, token_addr) = setup(&env);
+
+    let proposer = signers.get(0).unwrap();
+    let signer2 = signers.get(1).unwrap();
+    let recipient = Address::generate(&env);
+
+    let tx_id = client.propose_transaction(
+        &proposer,
+        &recipient,
+        &token_addr,
+        &10_000i128,
+        &make_desc(&env),
+        &86_400u64,
+    );
+
+    client.approve_transaction(&signer2, &tx_id);
+    client.reject_transaction(&signer2, &tx_id);
+}
+
+#[test]
+#[should_panic(expected = "already voted")]
+fn test_reject_twice_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, signers, _, token_addr) = setup(&env);
+
+    let proposer = signers.get(0).unwrap();
+    let signer2 = signers.get(1).unwrap();
+    let recipient = Address::generate(&env);
+
+    let tx_id = client.propose_transaction(
+        &proposer,
+        &recipient,
+        &token_addr,
+        &10_000i128,
+        &make_desc(&env),
+        &86_400u64,
+    );
+
+    client.reject_transaction(&signer2, &tx_id);
+    client.reject_transaction(&signer2, &tx_id);
+}
+
 // ─── read-only ───────────────────────────────────────────────────────────────
 
 #[test]
