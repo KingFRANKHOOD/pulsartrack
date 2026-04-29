@@ -152,7 +152,7 @@ fn test_update_performance_invalid_id() {
 }
 
 #[test]
-#[should_panic(expected = "fraud score must be 0-100")]
+#[should_panic(expected = "fraud_score must be 0-100")]
 fn test_update_performance_invalid_fraud() {
     let env = Env::default();
     env.mock_all_auths();
