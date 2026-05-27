@@ -111,9 +111,6 @@ impl TreasuryManagerContract {
             panic!("insufficient on-chain token balance");
         }
 
-        token_client.transfer(&env.current_contract_address(), &recipient, &amount);
-
-        // Sync internal accounting to reflect the actual post-withdrawal state.
         let mut state: TreasuryState =
             env.storage().instance().get(&DataKey::State).unwrap();
         state.balance = actual_balance
@@ -125,10 +122,25 @@ impl TreasuryManagerContract {
             .expect("total_withdrawn overflow");
         env.storage().instance().set(&DataKey::State, &state);
 
+        token_client.transfer(&env.current_contract_address(), &recipient, &amount);
+
         env.events().publish(
             (symbol_short!("treasury"), symbol_short!("withdraw")),
             (token, recipient, amount),
         );
+    }
+
+    pub fn sync_balance(env: Env) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+
+        let token: Address = env.storage().instance().get(&DataKey::TokenAddress).unwrap();
+        let actual = token::Client::new(&env, &token).balance(&env.current_contract_address());
+        let mut state: TreasuryState =
+            env.storage().instance().get(&DataKey::State).unwrap();
+        state.balance = actual;
+        env.storage().instance().set(&DataKey::State, &state);
     }
 
     pub fn get_state(env: Env) -> TreasuryState {
