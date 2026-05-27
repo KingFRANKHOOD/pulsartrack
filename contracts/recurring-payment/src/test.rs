@@ -2,9 +2,18 @@
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
-    token::StellarAssetClient,
+    token::{Client as TokenClient, StellarAssetClient},
     Address, Env,
 };
+
+fn approve_allowance(env: &Env, token: &Address, from: &Address, spender: &Address, amount: i128) {
+    TokenClient::new(env, token).approve(
+        from,
+        spender,
+        &amount,
+        &(env.ledger().sequence() + 100_000u32),
+    );
+}
 
 fn deploy_token(env: &Env, admin: &Address) -> Address {
     env.register_stellar_asset_contract_v2(admin.clone())
@@ -130,11 +139,10 @@ fn test_execute_payment_by_payer() {
     let token = deploy_token(&env, &admin);
     mint(&env, &token, &payer, 10_000);
     let id = c.create_recurring(&payer, &payee, &token, &1000i128, &1u64, &None);
+    approve_allowance(&env, &token, &payer, &c.address, 10_000);
 
-    // Fast forward time to allow execution
     env.ledger().with_mut(|li| li.timestamp = 2);
 
-    // Payer can execute
     c.execute_payment(&payer, &id);
     let payment = c.get_payment(&id).unwrap();
     assert_eq!(payment.total_payments, 1);
@@ -150,11 +158,10 @@ fn test_execute_payment_by_recipient() {
     let token = deploy_token(&env, &admin);
     mint(&env, &token, &payer, 10_000);
     let id = c.create_recurring(&payer, &payee, &token, &1000i128, &1u64, &None);
+    approve_allowance(&env, &token, &payer, &c.address, 10_000);
 
-    // Fast forward time to allow execution
     env.ledger().with_mut(|li| li.timestamp = 2);
 
-    // Recipient can execute
     c.execute_payment(&payee, &id);
     let payment = c.get_payment(&id).unwrap();
     assert_eq!(payment.total_payments, 1);
@@ -170,11 +177,10 @@ fn test_execute_payment_by_admin() {
     let token = deploy_token(&env, &admin);
     mint(&env, &token, &payer, 10_000);
     let id = c.create_recurring(&payer, &payee, &token, &1000i128, &1u64, &None);
+    approve_allowance(&env, &token, &payer, &c.address, 10_000);
 
-    // Fast forward time to allow execution
     env.ledger().with_mut(|li| li.timestamp = 2);
 
-    // Admin can execute
     c.execute_payment(&admin, &id);
     let payment = c.get_payment(&id).unwrap();
     assert_eq!(payment.total_payments, 1);
@@ -225,12 +231,48 @@ fn test_execute_payment_max_reached() {
     let token = deploy_token(&env, &admin);
     mint(&env, &token, &payer, 10_000);
     let id = c.create_recurring(&payer, &payee, &token, &1000i128, &1u64, &Some(1u32));
+    approve_allowance(&env, &token, &payer, &c.address, 10_000);
 
-    // Execute first payment
     env.ledger().with_mut(|li| li.timestamp = 2);
     c.execute_payment(&payer, &id);
 
     // Try to execute second payment (should fail - max reached)
     env.ledger().with_mut(|li| li.timestamp = 4);
     c.execute_payment(&payer, &id);
+}
+
+/// Verify the SEP-41 allowance pattern: payer pre-approves the contract once,
+/// then an admin keeper executes without any payer co-signature, and real token
+/// balances move correctly (payer -1000, payee +1000).
+#[test]
+fn test_execute_payment_transfers_balance_via_allowance() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (c, admin) = setup(&env);
+    let payer = Address::generate(&env);
+    let payee = Address::generate(&env);
+    let token = deploy_token(&env, &admin);
+    mint(&env, &token, &payer, 10_000);
+
+    let id = c.create_recurring(&payer, &payee, &token, &1000i128, &1u64, &Some(3u32));
+
+    // Payer approves the recurring-payment contract for the total allowance (3 payments × 1000)
+    soroban_sdk::token::Client::new(&env, &token).approve(
+        &payer,
+        &c.address,
+        &3_000i128,
+        &(env.ledger().sequence() + 100_000u32),
+    );
+
+    env.ledger().with_mut(|li| li.timestamp = 2);
+
+    // Admin (keeper) executes — no payer co-sign needed beyond the one-time approve
+    c.execute_payment(&admin, &id);
+
+    let token_client = soroban_sdk::token::Client::new(&env, &token);
+    assert_eq!(token_client.balance(&payee), 1_000, "payee should receive 1000");
+    assert_eq!(token_client.balance(&payer), 9_000, "payer should be debited 1000");
+
+    let payment = c.get_payment(&id).unwrap();
+    assert_eq!(payment.total_payments, 1);
 }

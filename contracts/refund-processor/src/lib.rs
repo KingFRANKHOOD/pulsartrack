@@ -95,6 +95,12 @@ impl RefundProcessorContract {
             panic!("invalid amount");
         }
 
+        // #530: block duplicate pending refunds for the same (requester, campaign) pair
+        let pending_key = DataKey::PendingRefund(campaign_id, requester.clone());
+        if env.storage().persistent().has(&pending_key) {
+            panic!("refund already pending for this campaign");
+        }
+
         let campaign: Campaign = env
             .storage()
             .persistent()
@@ -142,11 +148,14 @@ impl RefundProcessorContract {
 
         let _ttl_key = DataKey::Refund(refund_id);
         env.storage().persistent().set(&_ttl_key, &refund);
-        env.storage()
-            .persistent()
-            .set(&pending_refund_key, &refund_id);
+        env.storage().persistent().set(&pending_key, &refund_id);
         env.storage().persistent().extend_ttl(
             &_ttl_key,
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
+        env.storage().persistent().extend_ttl(
+            &pending_key,
             PERSISTENT_LIFETIME_THRESHOLD,
             PERSISTENT_BUMP_AMOUNT,
         );
@@ -211,6 +220,11 @@ impl RefundProcessorContract {
             .persistent()
             .get(&DataKey::Refund(refund_id))
             .expect("refund not found");
+
+        // #529: mirror approve_refund's guard — cannot reject a finalized refund
+        if refund.status != RefundStatus::Requested && refund.status != RefundStatus::UnderReview {
+            panic!("refund cannot be rejected in its current status");
+        }
 
         refund.status = RefundStatus::Rejected;
         refund.resolved_at = Some(env.ledger().timestamp());
