@@ -492,7 +492,7 @@ impl GovernanceDaoContract {
         }
 
         if proposal.status != ProposalStatus::Active {
-            panic!("can only cancel active proposals");
+            panic!("can only cancel an active proposal");
         }
 
         proposal.status = ProposalStatus::Cancelled;

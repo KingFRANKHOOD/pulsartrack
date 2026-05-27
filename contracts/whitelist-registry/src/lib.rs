@@ -170,11 +170,17 @@ impl WhitelistRegistryContract {
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
 
+        let key = DataKey::Whitelist(list_type, address);
         if let Some(entry) = env
             .storage()
             .persistent()
-            .get::<DataKey, WhitelistEntry>(&DataKey::Whitelist(list_type, address))
+            .get::<DataKey, WhitelistEntry>(&key)
         {
+            env.storage().persistent().extend_ttl(
+                &key,
+                PERSISTENT_LIFETIME_THRESHOLD,
+                PERSISTENT_BUMP_AMOUNT,
+            );
             match entry.removal_scheduled_at {
                 None => true,
                 Some(effective_at) => env.ledger().timestamp() < effective_at,
@@ -192,9 +198,16 @@ impl WhitelistRegistryContract {
         env.storage()
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
-        env.storage()
-            .persistent()
-            .get(&DataKey::Whitelist(list_type, address))
+        let key = DataKey::Whitelist(list_type, address);
+        let entry = env.storage().persistent().get(&key);
+        if entry.is_some() {
+            env.storage().persistent().extend_ttl(
+                &key,
+                PERSISTENT_LIFETIME_THRESHOLD,
+                PERSISTENT_BUMP_AMOUNT,
+            );
+        }
+        entry
     }
 
     pub fn propose_admin(env: Env, current_admin: Address, new_admin: Address) {
