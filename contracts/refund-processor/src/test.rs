@@ -27,6 +27,8 @@ fn setup_campaign(env: &Env, contract_id: &Address, campaign_id: u64, budget: i1
     let key = DataKey::Campaign(campaign_id);
     let campaign = Campaign {
         total_budget: budget,
+        end_time: 0,
+        refund_deadline: u64::MAX,
     };
     env.as_contract(contract_id, || {
         env.storage().persistent().set(&key, &campaign);
@@ -70,6 +72,7 @@ fn test_request_refund_duplicate_for_same_campaign_and_requester() {
     env.mock_all_auths();
     let (c, _, _, _) = setup(&env);
     let requester = Address::generate(&env);
+    setup_campaign(&env, &c.address, 1, 100_000);
 
     c.request_refund(&requester, &1u64, &50_000i128, &s(&env, "reason"));
     c.request_refund(&requester, &1u64, &25_000i128, &s(&env, "duplicate"));
@@ -81,12 +84,34 @@ fn test_request_refund_allowed_after_rejection() {
     env.mock_all_auths();
     let (c, admin, _, _) = setup(&env);
     let requester = Address::generate(&env);
+    setup_campaign(&env, &c.address, 1, 100_000);
 
     let first_id = c.request_refund(&requester, &1u64, &50_000i128, &s(&env, "reason"));
     c.reject_refund(&admin, &first_id);
 
     let second_id = c.request_refund(&requester, &1u64, &25_000i128, &s(&env, "new request"));
     assert_eq!(second_id, 2);
+}
+
+#[test]
+#[should_panic(expected = "refund cannot be rejected in its current status")]
+fn test_reject_already_processed_refund_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (c, admin, token_admin, token) = setup(&env);
+    let requester = Address::generate(&env);
+    setup_campaign(&env, &c.address, 1, 100_000);
+
+    let id = c.request_refund(&requester, &1u64, &50_000i128, &s(&env, "reason"));
+    c.approve_refund(&admin, &id, &50_000i128);
+
+    // Fund the contract so process_refund succeeds
+    mint(&env, &token, &c.address, 50_000);
+    let _ = token_admin; // suppress warning
+    c.process_refund(&admin, &id);
+
+    // Attempting to reject a Processed refund must panic
+    c.reject_refund(&admin, &id);
 }
 
 #[test]

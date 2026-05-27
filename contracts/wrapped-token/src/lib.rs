@@ -160,8 +160,8 @@ impl WrappedTokenContract {
             panic!("token not active");
         }
 
-        // Mint stellar-side tokens using the actual token contract
-        let stellar_asset_client = token::Client::new(&env, &wrapped.stellar_token);
+        // Mint stellar-side tokens; the wrapped-token contract must be the stellar token's admin
+        let stellar_asset_client = token::StellarAssetClient::new(&env, &wrapped.stellar_token);
         stellar_asset_client.mint(&recipient, &amount);
 
         wrapped.total_wrapped = wrapped
@@ -241,10 +241,10 @@ impl WrappedTokenContract {
             .get(&DataKey::WrappedToken(symbol.clone()))
             .expect("token not registered");
 
-        // Check user's balance in the actual token contract
-        let stellar_asset_client = token::Client::new(&env, &wrapped.stellar_token);
-        let current_balance = stellar_asset_client.balance(&user);
-        
+        // Verify user's on-chain balance before burning
+        let token_client = token::Client::new(&env, &wrapped.stellar_token);
+        let current_balance = token_client.balance(&user);
+
         if current_balance < amount {
             panic!("insufficient balance");
         }
@@ -252,6 +252,9 @@ impl WrappedTokenContract {
         if amount > wrapped.total_wrapped {
             panic!("burn amount exceeds total wrapped supply");
         }
+
+        // Burn the user's stellar-side tokens (SEP-41 burn requires user auth in the call tree)
+        token_client.burn(&user, &amount);
 
         wrapped.total_wrapped = wrapped
             .total_wrapped
@@ -312,10 +315,15 @@ impl WrappedTokenContract {
         env.storage()
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
-        env.storage()
+        let wrapped: WrappedToken = match env
+            .storage()
             .persistent()
-            .get(&DataKey::UserBalance(symbol, user))
-            .unwrap_or(0)
+            .get(&DataKey::WrappedToken(symbol))
+        {
+            Some(w) => w,
+            None => return 0,
+        };
+        token::Client::new(&env, &wrapped.stellar_token).balance(&user)
     }
 
     pub fn propose_admin(env: Env, current_admin: Address, new_admin: Address) {
