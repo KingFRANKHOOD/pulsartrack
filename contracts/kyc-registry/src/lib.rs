@@ -184,7 +184,10 @@ impl KycRegistryContract {
         let now = env.ledger().timestamp();
         record.verified = true;
         record.verified_at = Some(now);
-        record.expires_at = expires_in_secs.map(|d| now + d);
+        record.expires_at = expires_in_secs.map(|d| {
+            now.checked_add(d)
+                .expect("kyc expiry timestamp overflows u64")
+        });
         record.verifier = Some(provider.clone());
 
         let _ttl_key = DataKey::KycRecord(account.clone());
