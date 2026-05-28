@@ -179,6 +179,10 @@ impl TargetingEngineContract {
             panic!("unauthorized");
         }
 
+        if score > MAX_TARGETING_SCORE {
+            panic!("score must be 0-1000");
+        }
+
         let targeting_score = TargetingScore {
             campaign_id,
             publisher: publisher.clone(),
