@@ -238,11 +238,9 @@ impl KycRegistryContract {
         env.storage()
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
-        if let Some(record) = env
-            .storage()
-            .persistent()
-            .get::<DataKey, KycRecord>(&DataKey::KycRecord(account))
-        {
+        let key = DataKey::KycRecord(account.clone());
+        if let Some(record) = env.storage().persistent().get::<DataKey, KycRecord>(&key) {
+            extend_kyc_record_ttl(&env, &account);
             if !record.verified {
                 return false;
             }
