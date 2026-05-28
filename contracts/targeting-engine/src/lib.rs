@@ -125,6 +125,17 @@ impl TargetingEngineContract {
             panic!("invalid age range");
         }
 
+        let config_key = DataKey::TargetingConfig(campaign_id);
+        if let Some(existing) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, TargetingConfig>(&config_key)
+        {
+            if existing.advertiser != advertiser {
+                panic!("unauthorized: campaign belongs to a different advertiser");
+            }
+        }
+
         let config = TargetingConfig {
             campaign_id,
             advertiser: advertiser.clone(),
@@ -144,10 +155,9 @@ impl TargetingEngineContract {
             last_updated: env.ledger().timestamp(),
         };
 
-        let _ttl_key = DataKey::TargetingConfig(campaign_id);
-        env.storage().persistent().set(&_ttl_key, &config);
+        env.storage().persistent().set(&config_key, &config);
         env.storage().persistent().extend_ttl(
-            &_ttl_key,
+            &config_key,
             PERSISTENT_LIFETIME_THRESHOLD,
             PERSISTENT_BUMP_AMOUNT,
         );
