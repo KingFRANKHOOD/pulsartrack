@@ -117,6 +117,21 @@ impl KycRegistryContract {
             panic!("provider not active");
         }
 
+        // If an existing verified record exists and is still valid, block resubmission
+        if let Some(existing) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, KycRecord>(&DataKey::KycRecord(account.clone()))
+        {
+            let still_valid = existing.verified
+                && existing
+                    .expires_at
+                    .map_or(true, |e| e > env.ledger().timestamp());
+            if still_valid {
+                panic!("existing verified kyc record must be revoked before re-submitting");
+            }
+        }
+
         let record = KycRecord {
             account: account.clone(),
             level: level.clone(),

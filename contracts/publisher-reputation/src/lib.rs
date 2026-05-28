@@ -39,7 +39,7 @@ pub enum DataKey {
     Reputation(Address),
     Review(Address, u64), // publisher, review_index
     ReviewCount(Address),
-    ReviewRecord(Address, Address), // reviewer, publisher - to prevent duplicates
+    ReviewRecord(Address, Address, u64), // reviewer, publisher, campaign_id - to prevent duplicates per campaign
 }
 
 const INSTANCE_LIFETIME_THRESHOLD: u32 = 17_280;
@@ -118,10 +118,11 @@ impl PublisherReputationContract {
             panic!("invalid rating");
         }
 
-        // Check if reviewer has already submitted a review for this publisher
-        let review_key = DataKey::ReviewRecord(advertiser.clone(), publisher.clone());
-        if env.storage().persistent().has(&review_key) {
-            panic!("reviewer has already submitted a review for this publisher");
+        // Check if reviewer has already submitted a review for this publisher in this campaign
+        let review_key_check =
+            DataKey::ReviewRecord(advertiser.clone(), publisher.clone(), campaign_id);
+        if env.storage().persistent().has(&review_key_check) {
+            panic!("reviewer has already submitted a review for this publisher in this campaign");
         }
 
         let mut rep: ReputationScore = env
@@ -158,8 +159,8 @@ impl PublisherReputationContract {
             PERSISTENT_BUMP_AMOUNT,
         );
 
-        // Mark that this reviewer has reviewed this publisher
-        let review_key = DataKey::ReviewRecord(advertiser.clone(), publisher.clone());
+        // Mark that this reviewer has reviewed this publisher for this campaign
+        let review_key = DataKey::ReviewRecord(advertiser.clone(), publisher.clone(), campaign_id);
         env.storage().persistent().set(&review_key, &true);
         env.storage().persistent().extend_ttl(
             &review_key,
