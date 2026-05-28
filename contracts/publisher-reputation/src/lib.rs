@@ -46,6 +46,7 @@ const INSTANCE_LIFETIME_THRESHOLD: u32 = 17_280;
 const INSTANCE_BUMP_AMOUNT: u32 = 86_400;
 const PERSISTENT_LIFETIME_THRESHOLD: u32 = 120_960;
 const PERSISTENT_BUMP_AMOUNT: u32 = 1_051_200;
+const SLASH_COOLDOWN_LEDGERS: u32 = 17_280; // ~1 day at 5 s/ledger
 
 #[contract]
 pub struct PublisherReputationContract;
@@ -70,6 +71,7 @@ impl PublisherReputationContract {
         env.storage()
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+        publisher.require_auth();
         if env
             .storage()
             .persistent()
@@ -209,7 +211,7 @@ impl PublisherReputationContract {
             .expect("publisher not registered");
 
         let current_ledger = env.ledger().sequence();
-        if current_ledger <= rep.last_slash_ledger + 100 {
+        if current_ledger <= rep.last_slash_ledger + SLASH_COOLDOWN_LEDGERS {
             panic!("slash cooldown active");
         }
 
