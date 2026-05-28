@@ -162,6 +162,10 @@ impl AuctionEngineContract {
             .get(&DataKey::Auction(auction_id))
             .expect("auction not found");
 
+        if bidder == auction.publisher {
+            panic!("publisher cannot bid on own auction");
+        }
+
         if auction.status != AuctionStatus::Open {
             panic!("auction not open");
         }

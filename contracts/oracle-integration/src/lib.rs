@@ -227,11 +227,11 @@ impl OracleIntegrationContract {
     }
 
     fn _require_oracle(env: &Env, oracle: &Address) {
-        let is_auth: bool = env
-            .storage()
-            .persistent()
-            .get(&DataKey::AuthorizedOracle(oracle.clone()))
-            .unwrap_or(false);
+        let key = DataKey::AuthorizedOracle(oracle.clone());
+        let is_auth: bool = env.storage().persistent().get(&key).unwrap_or(false);
+        if is_auth {
+            env.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+        }
         if !is_auth {
             panic!("not authorized oracle");
         }
