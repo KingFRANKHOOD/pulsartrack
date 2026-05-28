@@ -222,7 +222,7 @@ impl CreativeMarketplaceContract {
         let token_client = token::Client::new(&env, &token_addr);
 
         let now = env.ledger().timestamp();
-        let expires_at = license_duration_secs.map(|d| now + d);
+        let expires_at = license_duration_secs.map(|d| now.checked_add(d).expect("license expiry timestamp overflows u64"));
 
         let license = License {
             listing_id,

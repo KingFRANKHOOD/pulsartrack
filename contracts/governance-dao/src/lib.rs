@@ -112,6 +112,12 @@ impl GovernanceDaoContract {
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
         }
+        if quorum_bps == 0 {
+            panic!("quorum must be > 0");
+        }
+        if pass_threshold == 0 || pass_threshold > 100 {
+            panic!("pass_threshold must be 1-100");
+        }
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
