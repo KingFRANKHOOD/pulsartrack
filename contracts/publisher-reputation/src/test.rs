@@ -133,13 +133,53 @@ fn test_slash_publisher() {
     c.init_publisher(&pub1);
 
     env.ledger().with_mut(|li| {
-        li.sequence_number += 105;
+        li.sequence_number += 17_281;
     });
 
     c.slash_publisher(&oracle, &pub1, &100u32);
     let rep = c.get_reputation(&pub1).unwrap();
     assert_eq!(rep.score, 400); // 500 - 100
     assert_eq!(rep.slashes, 1);
+}
+
+#[test]
+#[should_panic(expected = "slash cooldown active")]
+fn test_slash_publisher_cooldown_enforced() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (c, _, oracle) = setup(&env);
+    let pub1 = Address::generate(&env);
+    c.init_publisher(&pub1);
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number += 17_281;
+    });
+
+    c.slash_publisher(&oracle, &pub1, &50u32);
+
+    // Advance only 100 ledgers — still within the 17,280-ledger cooldown
+    env.ledger().with_mut(|li| {
+        li.sequence_number += 100;
+    });
+
+    c.slash_publisher(&oracle, &pub1, &50u32);
+}
+
+#[test]
+#[should_panic(expected = "already initialized")]
+fn test_init_publisher_requires_auth() {
+    let env = Env::default();
+    // Do NOT mock_all_auths so the auth check fires
+    let id = env.register_contract(None, PublisherReputationContract);
+    let c = PublisherReputationContractClient::new(&env, &id);
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    env.mock_all_auths();
+    c.initialize(&admin, &oracle);
+    let pub1 = Address::generate(&env);
+    // First call succeeds (all auths mocked), second must panic with duplicate
+    c.init_publisher(&pub1);
+    c.init_publisher(&pub1);
 }
 
 #[test]
@@ -162,7 +202,7 @@ fn test_slash_floor_at_zero() {
     c.init_publisher(&pub1);
 
     env.ledger().with_mut(|li| {
-        li.sequence_number += 105;
+        li.sequence_number += 17_281;
     });
 
     c.slash_publisher(&oracle, &pub1, &600u32); // capped at 100, so 500 - 100 = 400
