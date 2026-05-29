@@ -87,9 +87,11 @@ fn test_verify_zkp() {
     let user = Address::generate(&env);
     let zkp_hash = BytesN::from_array(&env, &[2u8; 32]);
     let proof_id = c.submit_zkp(&user, &s(&env, "1,2,3"), &zkp_hash);
-    c.verify_zkp(&admin, &proof_id);
+    let sig = BytesN::from_array(&env, &[1u8; 64]);
+    c.verify_zkp(&admin, &proof_id, &sig);
     let proof = c.get_proof(&proof_id).unwrap();
     assert!(proof.verified);
+    assert_eq!(proof.signature, Some(sig));
 }
 
 #[test]
