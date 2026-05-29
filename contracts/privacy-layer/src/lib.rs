@@ -29,6 +29,7 @@ pub struct AnonymousSegmentProof {
     pub zkp_hash: BytesN<32>, // zero-knowledge proof hash
     pub verified: bool,
     pub created_at: u64,
+    pub signature: Option<BytesN<64>>, // verifier's signature over verified statement
 }
 
 #[contracttype]
@@ -178,6 +179,7 @@ impl PrivacyLayerContract {
             zkp_hash,
             verified: false,
             created_at: env.ledger().timestamp(),
+            signature: None,
         };
 
         let _ttl_key = DataKey::Proof(proof_id.clone().into());
@@ -194,7 +196,7 @@ impl PrivacyLayerContract {
         proof_id.into()
     }
 
-    pub fn verify_zkp(env: Env, admin: Address, proof_id: BytesN<32>) {
+    pub fn verify_zkp(env: Env, admin: Address, proof_id: BytesN<32>, signature: BytesN<64>) {
         env.storage()
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
@@ -222,6 +224,7 @@ impl PrivacyLayerContract {
             .expect("proof not found");
 
         proof.verified = true;
+        proof.signature = Some(signature);
         let _ttl_key = DataKey::Proof(proof_id);
         env.storage().persistent().set(&_ttl_key, &proof);
         env.storage().persistent().extend_ttl(
