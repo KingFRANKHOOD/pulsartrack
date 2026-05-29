@@ -130,10 +130,15 @@ impl TreasuryManagerContract {
         );
     }
 
-    pub fn sync_balance(env: Env) {
+    pub fn sync_balance(env: Env, admin: Address) {
         env.storage()
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+        admin.require_auth();
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        if admin != stored_admin {
+            panic!("unauthorized");
+        }
 
         let token: Address = env.storage().instance().get(&DataKey::TokenAddress).unwrap();
         let actual = token::Client::new(&env, &token).balance(&env.current_contract_address());

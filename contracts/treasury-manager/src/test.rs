@@ -88,3 +88,28 @@ fn test_withdraw_unauthorized() {
     mint(&env, &token, &stranger, 100);
     c.withdraw(&stranger, &stranger, &50i128);
 }
+
+#[test]
+fn test_sync_balance() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (c, admin, token) = setup(&env);
+    let contract_id = c.address.clone();
+
+    mint(&env, &token, &contract_id, 1_000);
+    assert_eq!(c.get_state().balance, 0);
+
+    c.sync_balance(&admin);
+    assert_eq!(c.get_state().balance, 1_000);
+}
+
+#[test]
+#[should_panic(expected = "unauthorized")]
+fn test_sync_balance_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (c, _admin, token) = setup(&env);
+    let stranger = Address::generate(&env);
+    c.sync_balance(&stranger);
+}
+
