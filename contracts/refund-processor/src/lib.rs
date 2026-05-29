@@ -272,12 +272,8 @@ impl RefundProcessorContract {
         if balance < refund.amount_approved {
             panic!("insufficient contract balance for refund");
         }
-        token_client.transfer(
-            &env.current_contract_address(),
-            &refund.requester,
-            &refund.amount_approved,
-        );
 
+        // CEI: persist Processed status and remove pending marker before transfer
         refund.status = RefundStatus::Processed;
         let _ttl_key = DataKey::Refund(refund_id);
         env.storage().persistent().set(&_ttl_key, &refund);
@@ -288,6 +284,12 @@ impl RefundProcessorContract {
             &_ttl_key,
             PERSISTENT_LIFETIME_THRESHOLD,
             PERSISTENT_BUMP_AMOUNT,
+        );
+
+        token_client.transfer(
+            &env.current_contract_address(),
+            &refund.requester,
+            &refund.amount_approved,
         );
 
         env.events().publish(
