@@ -45,6 +45,7 @@ pub enum DataKey {
     Balance(Address),
     Allowance(Address, Address),
     Delegation(Address),
+    DelegatedPower(Address),
     VotingSnapshot(Address, u32), // Address, ledger_sequence
 }
 
@@ -56,8 +57,8 @@ pub const MAX_SUPPLY: i128 = 1_000_000_000_000; // 1M tokens with 6 decimals
 
 const INSTANCE_LIFETIME_THRESHOLD: u32 = 17_280;
 const INSTANCE_BUMP_AMOUNT: u32 = 86_400;
-const PERSISTENT_LIFETIME_THRESHOLD: u32 = 34_560;
-const PERSISTENT_BUMP_AMOUNT: u32 = 259_200;
+const PERSISTENT_LIFETIME_THRESHOLD: u32 = 120_960;
+const PERSISTENT_BUMP_AMOUNT: u32 = 1_051_200;
 
 #[contract]
 pub struct GovernanceTokenContract;
@@ -167,6 +168,28 @@ impl GovernanceTokenContract {
             PERSISTENT_BUMP_AMOUNT,
         );
 
+        let from_delegation = env
+            .storage()
+            .persistent()
+            .get::<DataKey, Delegation>(&DataKey::Delegation(from.clone()));
+
+        if let Some(delegation) = from_delegation {
+            let delegate_power: i128 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::DelegatedPower(delegation.delegate.clone()))
+                .unwrap_or(0);
+            let _ttl_key = DataKey::DelegatedPower(delegation.delegate);
+            env.storage()
+                .persistent()
+                .set(&_ttl_key, &(delegate_power - amount));
+            env.storage().persistent().extend_ttl(
+                &_ttl_key,
+                PERSISTENT_LIFETIME_THRESHOLD,
+                PERSISTENT_BUMP_AMOUNT,
+            );
+        }
+
         let to_balance: i128 = env
             .storage()
             .persistent()
@@ -243,6 +266,28 @@ impl GovernanceTokenContract {
             PERSISTENT_BUMP_AMOUNT,
         );
 
+        let from_delegation = env
+            .storage()
+            .persistent()
+            .get::<DataKey, Delegation>(&DataKey::Delegation(from.clone()));
+
+        if let Some(delegation) = from_delegation {
+            let delegate_power: i128 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::DelegatedPower(delegation.delegate.clone()))
+                .unwrap_or(0);
+            let _ttl_key = DataKey::DelegatedPower(delegation.delegate);
+            env.storage()
+                .persistent()
+                .set(&_ttl_key, &(delegate_power - amount));
+            env.storage().persistent().extend_ttl(
+                &_ttl_key,
+                PERSISTENT_LIFETIME_THRESHOLD,
+                PERSISTENT_BUMP_AMOUNT,
+            );
+        }
+
         let to_balance: i128 = env
             .storage()
             .persistent()
@@ -265,6 +310,11 @@ impl GovernanceTokenContract {
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
         owner.require_auth();
+
+        if amount < 0 {
+            panic!("allowance amount must be non-negative");
+        }
+
         let _ttl_key = DataKey::Allowance(owner, spender);
         env.storage()
             .persistent()
@@ -335,6 +385,10 @@ impl GovernanceTokenContract {
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
         from.require_auth();
 
+        if amount <= 0 {
+            panic!("burn amount must be positive");
+        }
+
         let balance: i128 = env
             .storage()
             .persistent()
@@ -345,7 +399,7 @@ impl GovernanceTokenContract {
             panic!("insufficient balance");
         }
 
-        let _ttl_key = DataKey::Balance(from);
+        let _ttl_key = DataKey::Balance(from.clone());
         env.storage()
             .persistent()
             .set(&_ttl_key, &(balance - amount));
@@ -354,6 +408,28 @@ impl GovernanceTokenContract {
             PERSISTENT_LIFETIME_THRESHOLD,
             PERSISTENT_BUMP_AMOUNT,
         );
+
+        let from_delegation = env
+            .storage()
+            .persistent()
+            .get::<DataKey, Delegation>(&DataKey::Delegation(from.clone()));
+
+        if let Some(delegation) = from_delegation {
+            let delegate_power: i128 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::DelegatedPower(delegation.delegate.clone()))
+                .unwrap_or(0);
+            let _ttl_key = DataKey::DelegatedPower(delegation.delegate);
+            env.storage()
+                .persistent()
+                .set(&_ttl_key, &(delegate_power - amount));
+            env.storage().persistent().extend_ttl(
+                &_ttl_key,
+                PERSISTENT_LIFETIME_THRESHOLD,
+                PERSISTENT_BUMP_AMOUNT,
+            );
+        }
 
         let supply: i128 = env
             .storage()
@@ -371,6 +447,54 @@ impl GovernanceTokenContract {
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
         delegator.require_auth();
+
+        if delegator == delegate_to {
+            panic!("cannot delegate voting power to self");
+        }
+
+        let delegator_balance: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Balance(delegator.clone()))
+            .unwrap_or(0);
+
+        let existing_delegation = env
+            .storage()
+            .persistent()
+            .get::<DataKey, Delegation>(&DataKey::Delegation(delegator.clone()));
+
+        if let Some(old_delegation) = existing_delegation {
+            let old_delegate_power: i128 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::DelegatedPower(old_delegation.delegate.clone()))
+                .unwrap_or(0);
+            let new_old_power = old_delegate_power - delegator_balance;
+            let _ttl_key = DataKey::DelegatedPower(old_delegation.delegate);
+            env.storage()
+                .persistent()
+                .set(&_ttl_key, &new_old_power);
+            env.storage().persistent().extend_ttl(
+                &_ttl_key,
+                PERSISTENT_LIFETIME_THRESHOLD,
+                PERSISTENT_BUMP_AMOUNT,
+            );
+        }
+
+        let new_delegate_power: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DelegatedPower(delegate_to.clone()))
+            .unwrap_or(0);
+        let _ttl_key = DataKey::DelegatedPower(delegate_to.clone());
+        env.storage()
+            .persistent()
+            .set(&_ttl_key, &(new_delegate_power + delegator_balance));
+        env.storage().persistent().extend_ttl(
+            &_ttl_key,
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
 
         let delegation = Delegation {
             delegate: delegate_to.clone(),
@@ -395,12 +519,42 @@ impl GovernanceTokenContract {
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
         delegator.require_auth();
+
+        let delegation = env
+            .storage()
+            .persistent()
+            .get::<DataKey, Delegation>(&DataKey::Delegation(delegator.clone()));
+
+        if let Some(delegation_info) = delegation {
+            let delegator_balance: i128 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::Balance(delegator.clone()))
+                .unwrap_or(0);
+
+            let delegate_power: i128 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::DelegatedPower(delegation_info.delegate.clone()))
+                .unwrap_or(0);
+            let new_power = delegate_power - delegator_balance;
+            let _ttl_key = DataKey::DelegatedPower(delegation_info.delegate);
+            env.storage()
+                .persistent()
+                .set(&_ttl_key, &new_power);
+            env.storage().persistent().extend_ttl(
+                &_ttl_key,
+                PERSISTENT_LIFETIME_THRESHOLD,
+                PERSISTENT_BUMP_AMOUNT,
+            );
+        }
+
         env.storage()
             .persistent()
             .remove(&DataKey::Delegation(delegator));
     }
 
-    /// Get voting power (0 if delegated)
+    /// Get voting power (0 if delegated, otherwise own balance plus received delegations)
     pub fn voting_power(env: Env, voter: Address) -> i128 {
         env.storage()
             .instance()
@@ -411,13 +565,19 @@ impl GovernanceTokenContract {
             .get::<DataKey, Delegation>(&DataKey::Delegation(voter.clone()));
 
         if delegation.is_some() {
-            // Delegated - no direct voting power
             0
         } else {
-            env.storage()
+            let own_balance: i128 = env
+                .storage()
                 .persistent()
-                .get(&DataKey::Balance(voter))
-                .unwrap_or(0)
+                .get(&DataKey::Balance(voter.clone()))
+                .unwrap_or(0);
+            let delegated_power: i128 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::DelegatedPower(voter))
+                .unwrap_or(0);
+            own_balance + delegated_power
         }
     }
 
